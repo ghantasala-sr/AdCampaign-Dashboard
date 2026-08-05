@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 does not scan node_modules, and `@adsight/ui` is a workspace
+ * package resolved through it — without this the shared components would render
+ * with no styles in a production build. Pointing at src rather than dist because
+ * the class strings are identical and src is what changes.
+ */
+@source '../../../../packages/ui/src';
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  font-family: var(--font-sans);
+}
+
+/* Data-dense tables read better with a thin scrollbar than the default chrome. */
+@supports selector(::-webkit-scrollbar) {
+  .overflow-auto::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .overflow-auto::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-300;
+  }
+  .overflow-auto::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+}
+
+/* Respect users who have asked for less motion; the sparkline pulse is decorative. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

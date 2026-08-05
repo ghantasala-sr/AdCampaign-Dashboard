@@ -1,0 +1,105 @@
+{
+  "measuredAt": "2026-08-05T18:04:26.172Z",
+  "baseUrl": "http://localhost:3100",
+  "node": "v25.6.1",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+  "repeats": 5,
+  "method": {
+    "render": "window.__ADSIGHT_PERF__.run() in the /perf harness: cold mount timed to the second requestAnimationFrame after commit, then a 30-step scripted scroll measuring frame intervals. Both variants receive the same row array.",
+    "transfer": "Sum of response bodies with resourceType \"script\" on a cold page load in a fresh browser context, waiting for networkidle plus 1.5s."
+  },
+  "transfer": [
+    {
+      "path": "/",
+      "wireKb": 518,
+      "decodedKb": 518,
+      "jsRequests": 13
+    },
+    {
+      "path": "/perf",
+      "wireKb": 518,
+      "decodedKb": 518,
+      "jsRequests": 13
+    },
+    {
+      "path": "/campaigns/[id]",
+      "wireKb": 903,
+      "decodedKb": 903,
+      "jsRequests": 15
+    }
+  ],
+  "render": [
+    {
+      "variant": "naive",
+      "rowCount": 1000,
+      "repeats": 5,
+      "mountMs": 583.3,
+      "scrollTotalMs": 499.8,
+      "medianFrameMs": 16.7,
+      "worstFrameMs": 17.9,
+      "framesOver16ms": 12,
+      "frameCount": 30,
+      "domNodes": 51025
+    },
+    {
+      "variant": "optimized",
+      "rowCount": 1000,
+      "repeats": 5,
+      "mountMs": 33.3,
+      "scrollTotalMs": 502.6,
+      "medianFrameMs": 16.7,
+      "worstFrameMs": 19.7,
+      "framesOver16ms": 12,
+      "frameCount": 30,
+      "domNodes": 553
+    },
+    {
+      "variant": "naive",
+      "rowCount": 5000,
+      "repeats": 5,
+      "mountMs": 2756.5,
+      "scrollTotalMs": 1175.7,
+      "medianFrameMs": 39.4,
+      "worstFrameMs": 44.9,
+      "framesOver16ms": 30,
+      "frameCount": 30,
+      "domNodes": 255025
+    },
+    {
+      "variant": "optimized",
+      "rowCount": 5000,
+      "repeats": 5,
+      "mountMs": 33.9,
+      "scrollTotalMs": 501.6,
+      "medianFrameMs": 16.7,
+      "worstFrameMs": 19.3,
+      "framesOver16ms": 13,
+      "frameCount": 30,
+      "domNodes": 523
+    },
+    {
+      "variant": "naive",
+      "rowCount": 10000,
+      "repeats": 5,
+      "mountMs": 6472.4,
+      "scrollTotalMs": 2062.5,
+      "medianFrameMs": 68.1,
+      "worstFrameMs": 95.1,
+      "framesOver16ms": 30,
+      "frameCount": 30,
+      "domNodes": 510025
+    },
+    {
+      "variant": "optimized",
+      "rowCount": 10000,
+      "repeats": 5,
+      "mountMs": 34.1,
+      "scrollTotalMs": 500.6,
+      "medianFrameMs": 17.5,
+      "worstFrameMs": 23.9,
+      "framesOver16ms": 19,
+      "frameCount": 30,
+      "domNodes": 463
+    }
+  ]
+}

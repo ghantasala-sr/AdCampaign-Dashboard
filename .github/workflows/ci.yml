@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same PR cancels the in-flight run; there is no value in
+# finishing a check against a commit that has already been superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned so the fixture is byte-identical across jobs and across reruns —
+  # otherwise a date-range test could pass in the morning and fail at midnight.
+  SEED_END_DATE: '2026-08-04'
+
+jobs:
+  verify:
+    name: Typecheck, lint and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Shared packages must be compiled before either app can typecheck against
+      # them; Turbo's `^build` dependency handles the ordering.
+      - name: Build shared packages
+        run: npx turbo run build --filter=@adsight/types --filter=@adsight/ui
+
+      - name: Generate fixture data
+        run: npm run seed
+
+      - name: Typecheck
+        run: npx turbo run typecheck
+
+      - name: Lint
+        run: npx turbo run lint
+
+      - name: Unit tests
+        run: npx turbo run test
+
+      - name: Production build
+        run: npx turbo run build
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npx turbo run build
+
+      - name: Generate fixture data
+        run: npm run seed
+
+      # Only Chromium: this suite checks application behaviour, not browser
+      # compatibility, so three engines would triple the runtime for no signal.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Run end-to-end tests
+        run: npm run e2e
+        env:
+          CI: 'true'
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+
+  measure:
+    name: Bundle size
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build shared packages
+        run: npx turbo run build --filter=@adsight/types --filter=@adsight/ui
+
+      - name: Generate fixture data
+        run: npm run seed
+
+      # Runs both builds and writes perf/bundle.json. Reported rather than
+      # gated: a size budget that fails a PR needs a baseline everyone trusts
+      # first, and this job is how that baseline gets established.
+      - name: Measure initial JavaScript per route
+        run: npm run measure:bundle
+
+      - name: Upload measurement
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-measurement
+          path: perf/bundle.json
+          retention-days: 30

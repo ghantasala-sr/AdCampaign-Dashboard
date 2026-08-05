@@ -1,0 +1,39 @@
+# Render blueprint for the BFF. `render.yaml` is not used by the web app —
+# apps/web deploys to Vercel; see DEPLOY.md.
+services:
+  - type: web
+    name: adsight-api
+    runtime: node
+    plan: starter
+    # The seed step runs here, while dev dependencies (tsx) are still present.
+    # Without it the service boots and immediately throws: the fixture is
+    # generated, not committed.
+    buildCommand: npm ci && npx turbo run build --filter=@adsight/api && npm run seed
+    startCommand: npm run start --workspace=@adsight/api
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      # Must include the deployed web origin or every browser request fails CORS.
+      - key: CORS_ORIGIN
+        sync: false
+      # Unset is fine: the deterministic keyword planner answers instead.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Deliberately NOT pinned here. Left unset, each deploy regenerates the
+      # window ending today, so a live demo never shows a stale "data through"
+      # date. CI pins it instead (see .github/workflows/ci.yml) because there the
+      # requirement is the opposite: a byte-identical fixture so date-range tests
+      # mean the same thing on every run.
+      # - key: SEED_END_DATE
+      #   value: '2026-08-04'
+      # A hosted demo should feel fast and shouldn't show the degraded banner
+      # to a first-time visitor with no context for it.
+      - key: UPSTREAM_LATENCY_MIN_MS
+        value: 0
+      - key: UPSTREAM_LATENCY_MAX_MS
+        value: 0
+      - key: BUDGET_SERVICE_FAILURE_RATE
+        value: 0

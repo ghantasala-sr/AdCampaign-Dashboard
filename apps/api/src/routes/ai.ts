@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { DEFAULT_SORT, EMPTY_FILTER, SORTABLE_FIELDS } from '@adsight/types';
 import type { CampaignFilter, QueryStreamEvent, SortSpec } from '@adsight/types';
 
-import { planQuery, plannerSource } from '../ai/planner.js';
+import { planQuery, plannerModel, plannerSource } from '../ai/planner.js';
 import { sendValidationError } from './errors.js';
 
 /**
@@ -69,7 +69,7 @@ aiRouter.get('/ai/status', (_req, res) => {
     source: plannerSource(),
     // The UI labels the panel differently depending on which planner answers, so
     // it needs to know before the first query rather than after.
-    model: plannerSource() === 'model' ? 'claude-opus-5' : null,
+    model: plannerModel(),
   });
 });
 

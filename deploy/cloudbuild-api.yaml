@@ -1,0 +1,33 @@
+# Builds the BFF image on Cloud Build.
+#
+#   gcloud builds submit --config deploy/cloudbuild-api.yaml \
+#     --substitutions=_IMAGE=us-central1-docker.pkg.dev/PROJECT/adsight/api:latest .
+#
+# Cloud Build rather than a local `docker build` for one concrete reason: Cloud
+# Run runs linux/amd64, and an Apple Silicon machine produces arm64 images that
+# deploy successfully and then fail to start. Cloud Build is amd64 natively.
+#
+# The build context is the repo root — apps/api depends on @adsight/types through
+# the workspace lockfile, so a context of apps/api cannot resolve it.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --file=apps/api/Dockerfile
+      - --tag=${_IMAGE}
+      # Reuse layers from the previous build so npm ci is not repeated when only
+      # source changed. Harmless on a first run when the tag does not exist yet.
+      - --cache-from=${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# The default 10 minutes is close for a cold build: npm ci plus tsc plus the
+# fixture generation runs about four minutes, and a cache miss adds to that.
+timeout: 1800s

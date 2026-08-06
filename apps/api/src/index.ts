@@ -1,4 +1,5 @@
 import { createApp } from './app.js';
+import { plannerModel, plannerTransport } from './ai/planner.js';
 import { getEnv } from './env.js';
 import { loadDataset } from './lib/fixtures.js';
 
@@ -16,7 +17,15 @@ const server = app.listen(env.PORT, () => {
       `[api] ${dataset.manifest.campaignCount.toLocaleString()} campaigns, ` +
       `window ${dataset.manifest.startDate}..${dataset.manifest.endDate}, ` +
       `loaded in ${dataset.loadMs}ms\n` +
-      `[api] planner: ${env.ANTHROPIC_API_KEY ? 'claude-opus-5' : 'heuristic (no ANTHROPIC_API_KEY)'}\n`,
+      `[api] planner: ${
+        plannerModel()
+          ? `${plannerModel()} via ${
+              plannerTransport() === 'vertex'
+                ? `Vertex AI (${env.VERTEX_PROJECT_ID}/${env.VERTEX_REGION})`
+                : 'AI Studio'
+            }`
+          : 'heuristic (no GEMINI_API_KEY or VERTEX_PROJECT_ID)'
+      }\n`,
   );
 });
 

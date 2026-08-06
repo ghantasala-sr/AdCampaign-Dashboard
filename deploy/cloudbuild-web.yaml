@@ -1,0 +1,28 @@
+# Builds the web image on Cloud Build.
+#
+#   gcloud builds submit --config deploy/cloudbuild-web.yaml \
+#     --substitutions=_IMAGE=...,_API_URL=https://adsight-api-xxx.run.app .
+#
+# _API_URL is passed as a Docker BUILD ARG, not a runtime environment variable.
+# Next inlines NEXT_PUBLIC_* into the client bundle at build time, so the API
+# host is fixed when this image is built. Changing it later means rebuilding —
+# which is why the API has to be deployed first.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --file=apps/web/Dockerfile
+      - --build-arg=NEXT_PUBLIC_API_URL=${_API_URL}
+      - --tag=${_IMAGE}
+      - --cache-from=${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1800s

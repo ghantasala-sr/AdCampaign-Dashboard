@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { NextConfig } from 'next';
 
 /**
@@ -11,6 +12,16 @@ const isBaseline = process.env.NEXT_PUBLIC_PERF_BASELINE === '1';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   productionBrowserSourceMaps: false,
+  /**
+   * Emits a self-contained server bundle with only the node_modules actually
+   * reached at runtime. In this monorepo that matters twice over: the container
+   * image drops from the full workspace install to tens of megabytes, and the
+   * workspace packages get copied in rather than left as symlinks that break
+   * once the build stage is discarded.
+   */
+  output: 'standalone',
+  /** The workspace root, so tracing follows @adsight/* out of apps/web. */
+  outputFileTracingRoot: join(import.meta.dirname, '..', '..'),
   env: {
     NEXT_PUBLIC_PERF_BASELINE: isBaseline ? '1' : '0',
   },

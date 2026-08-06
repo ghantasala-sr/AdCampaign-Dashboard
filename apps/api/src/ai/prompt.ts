@@ -91,8 +91,11 @@ export const plannerToolSchema = {
           value: {
             type: 'number',
             description:
-              'In display units: spendCents in whole dollars, ttr and conversionRate as ' +
-              'fractions (0.05 for 5%), avgCPT/avgCPA/avgCPM in dollars, counts as integers.',
+              'ALWAYS in display units, never storage units. The metric named ' +
+              '"spendCents" is the one exception worth stating twice: give it in ' +
+              'WHOLE DOLLARS, not cents. For "spend over $2,000" send value 2000, ' +
+              'NOT 200000. Likewise avgCPT/avgCPA/avgCPM are dollars ($4.50 -> 4.5). ' +
+              'ttr and conversionRate are fractions (5% -> 0.05). Counts are integers.',
           },
         },
         required: ['metric', 'comparator', 'value'],
@@ -139,6 +142,30 @@ export const plannerToolSchema = {
   ],
   additionalProperties: false,
 };
+
+/**
+ * The same schema with `additionalProperties` removed.
+ *
+ * Gemini's function-declaration validator rejects the keyword outright rather
+ * than ignoring it. Dropping it costs nothing here: every property is declared
+ * and required, and the arguments are validated against zod on the way out
+ * regardless, so an extra key the model invented would be caught there.
+ */
+function stripAdditionalProperties(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripAdditionalProperties);
+  if (node === null || typeof node !== 'object') return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === 'additionalProperties') continue;
+    out[key] = stripAdditionalProperties(value);
+  }
+  return out;
+}
+
+export const geminiToolSchema = stripAdditionalProperties(plannerToolSchema) as Record<
+  string,
+  unknown
+>;
 
 export function buildSystemPrompt(): string {
   return [

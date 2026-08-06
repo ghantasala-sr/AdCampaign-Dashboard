@@ -1,18 +1,22 @@
-import type { ReactNode } from 'react';
+import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
 
-export interface CardProps {
+/**
+ * Extends the div attributes so `data-*`, `id`, `role` and handlers reach the
+ * element. Without the spread they are accepted by TypeScript and then silently
+ * dropped — `<Card data-testid="…">` compiled fine and produced no attribute,
+ * which cost a debugging session chasing a selector that could never match.
+ */
+export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   readonly children: ReactNode;
   readonly className?: string;
 }
 
-export function Card({ children, className }: CardProps) {
+export function Card({ children, className, ...rest }: CardProps) {
   return (
     <div
-      className={cn(
-        'rounded-lg bg-white ring-1 ring-slate-200 ring-inset shadow-xs',
-        className,
-      )}
+      className={cn('rounded-lg bg-white ring-1 ring-slate-200 ring-inset shadow-xs', className)}
+      {...rest}
     >
       {children}
     </div>

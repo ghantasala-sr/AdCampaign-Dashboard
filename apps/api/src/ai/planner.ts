@@ -1,16 +1,23 @@
 /**
- * Model-backed planner.
+ * Model-backed planner, running Gemini Flash.
  *
  * Streams the rationale as it is generated, then emits one validated
- * `FilterPlan`. The rationale arrives as ordinary text blocks; the filter
- * arrives as a single strict tool call, which the SDK accumulates and parses for
- * us — so this file never hand-parses partial JSON.
+ * `FilterPlan`. The rationale arrives as text parts; the filter arrives as a
+ * function call, which the SDK parses for us — so this file never hand-parses
+ * partial JSON.
  *
- * Falls back to the deterministic parser when no API key is configured, and also
- * when the model errors or refuses, so the query bar never dead-ends.
+ * Two ways in, both through the same SDK:
+ *
+ *   - Vertex AI (`VERTEX_PROJECT_ID`) — authenticates as the Cloud Run runtime
+ *     service account via Application Default Credentials. No API key exists
+ *     anywhere, and Gemini needs no Model Garden grant, unlike Claude.
+ *   - AI Studio (`GEMINI_API_KEY`) — a genuinely free tier, no GCP project.
+ *
+ * Falls back to the deterministic parser when neither is configured, and also
+ * when the model errors or returns no usable call, so the bar never dead-ends.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 import type { CampaignFilter, FilterPlan, QueryStreamEvent, SortSpec } from '@adsight/types';
 
 import { getEnv } from '../env.js';
@@ -20,23 +27,57 @@ import {
   PLANNER_TOOL_NAME,
   buildSystemPrompt,
   buildUserPrompt,
-  plannerToolSchema,
+  geminiToolSchema,
 } from './prompt.js';
 
-const MODEL = 'claude-opus-5';
-const MAX_TOKENS = 2048;
-/** Server-side refusal fallback. Opt-in per Anthropic's guidance for Opus 5. */
-const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+let client: GoogleGenAI | null = null;
 
-let client: Anthropic | null = null;
+interface PlannerConfig {
+  readonly client: GoogleGenAI;
+  readonly model: string;
+}
 
-function getClient(apiKey: string): Anthropic {
-  if (!client) client = new Anthropic({ apiKey });
-  return client;
+/**
+ * Null when no credentials are configured, which is the signal to use the
+ * keyword planner. Cached because the Vertex constructor resolves Application
+ * Default Credentials, a metadata-server round trip on Cloud Run.
+ */
+function getPlanner(): PlannerConfig | null {
+  const env = getEnv();
+
+  if (!client) {
+    if (env.GEMINI_API_KEY) {
+      client = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+    } else if (env.VERTEX_PROJECT_ID) {
+      client = new GoogleGenAI({
+        vertexai: true,
+        project: env.VERTEX_PROJECT_ID,
+        location: env.VERTEX_REGION,
+      });
+    } else {
+      return null;
+    }
+  }
+
+  return { client, model: env.GEMINI_MODEL };
 }
 
 export function plannerSource(): 'model' | 'heuristic' {
-  return getEnv().ANTHROPIC_API_KEY ? 'model' : 'heuristic';
+  const env = getEnv();
+  return env.GEMINI_API_KEY || env.VERTEX_PROJECT_ID ? 'model' : 'heuristic';
+}
+
+/** Model identifier for `/api/ai/status`, or null when the heuristic answers. */
+export function plannerModel(): string | null {
+  return plannerSource() === 'model' ? getEnv().GEMINI_MODEL : null;
+}
+
+/** Which credential path is in use, for the boot banner. */
+export function plannerTransport(): 'vertex' | 'ai-studio' | 'none' {
+  const env = getEnv();
+  if (env.GEMINI_API_KEY) return 'ai-studio';
+  if (env.VERTEX_PROJECT_ID) return 'vertex';
+  return 'none';
 }
 
 /**
@@ -50,9 +91,9 @@ export async function* planQuery(
   currentFilter: CampaignFilter,
   currentSort: SortSpec,
 ): AsyncGenerator<QueryStreamEvent> {
-  const apiKey = getEnv().ANTHROPIC_API_KEY;
+  const planner = getPlanner();
 
-  if (!apiKey) {
+  if (!planner) {
     yield* heuristicStream(query, currentFilter, currentSort);
     return;
   }
@@ -60,13 +101,12 @@ export async function* planQuery(
   yield { type: 'start', source: 'model' };
 
   try {
-    const plan = yield* streamFromModel(apiKey, query, currentFilter, currentSort);
+    const plan = yield* streamFromModel(planner, query, currentFilter, currentSort);
     if (plan) {
       yield { type: 'plan', plan };
       yield { type: 'done' };
       return;
     }
-    // The model produced no usable tool call (refusal, or it just wrote prose).
     yield {
       type: 'error',
       message: 'The assistant did not return a usable filter. Falling back to keyword matching.',
@@ -74,7 +114,7 @@ export async function* planQuery(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`[ai] planner failed, falling back to heuristic: ${message}\n`);
+    process.stderr.write(`[ai] Gemini planner failed, falling back to heuristic: ${message}\n`);
     yield {
       type: 'error',
       message: 'The assistant is unavailable. Falling back to keyword matching.',
@@ -82,7 +122,6 @@ export async function* planQuery(
     };
   }
 
-  // Either path above that did not return still owes the caller a plan.
   const fallback = planFromHeuristic(query, currentFilter, currentSort);
   yield { type: 'plan', plan: fallback };
   yield { type: 'done' };
@@ -96,8 +135,8 @@ async function* heuristicStream(
   yield { type: 'start', source: 'heuristic' };
   const plan = planFromHeuristic(query, currentFilter, currentSort);
 
-  // Paced so the streaming UI is exercised identically with and without a key —
-  // otherwise the no-key path would silently skip the code that renders tokens.
+  // Paced so the streaming UI is exercised identically with and without a model —
+  // otherwise the no-credentials path would silently skip the token rendering.
   for (const chunk of chunkText(plan.interpretation)) {
     yield { type: 'token', text: chunk };
     await new Promise((resolve) => setTimeout(resolve, 12));
@@ -113,100 +152,65 @@ function chunkText(text: string): string[] {
 }
 
 async function* streamFromModel(
-  apiKey: string,
+  { client: ai, model }: PlannerConfig,
   query: string,
   currentFilter: CampaignFilter,
   currentSort: SortSpec,
 ): AsyncGenerator<QueryStreamEvent, FilterPlan | null> {
-  const anthropic = getClient(apiKey);
+  const stream = await ai.models.generateContentStream({
+    model,
+    contents: [{ role: 'user', parts: [{ text: buildUserPrompt(query, currentFilter) }] }],
+    config: {
+      systemInstruction: buildSystemPrompt(),
+      maxOutputTokens: 2048,
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: PLANNER_TOOL_NAME,
+              description: 'Propose a campaign filter for the user to review. Call exactly once.',
+              // `parametersJsonSchema` takes real JSON Schema, unlike the older
+              // `parameters` field which wants Gemini's own OpenAPI subset.
+              parametersJsonSchema: geminiToolSchema,
+            },
+          ],
+        },
+      ],
+      // Deliberately not forcing the call with `functionCallingConfig.mode: ANY`.
+      // Forcing it suppresses the text parts, and the streamed prose is the whole
+      // point of the feature — a plan that appears with no explanation is not
+      // reviewable. The prompt asks for prose then a call, and the fallback below
+      // covers the case where the model skips the call anyway.
+    },
+  });
 
-  const params = {
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(),
-    messages: [{ role: 'user' as const, content: buildUserPrompt(query, currentFilter) }],
-    // `strict` guarantees the tool input validates against the schema, which
-    // removes a whole class of "the model returned a string for value" handling.
-    tools: [
-      {
-        name: PLANNER_TOOL_NAME,
-        description:
-          'Propose a campaign filter for the user to review. Call exactly once.',
-        input_schema: plannerToolSchema,
-        strict: true,
-      },
-    ],
-    tool_choice: { type: 'tool' as const, name: PLANNER_TOOL_NAME },
-    // Low effort keeps a query bar responsive. Thinking is deliberately left at
-    // its default (on): disabling it on Opus 5 can make the model emit a tool
-    // call as plain text, which would silently break this planner.
-    output_config: { effort: 'low' as const },
-  };
+  const calls: Array<{ name?: string; args?: unknown }> = [];
 
-  const stream = await openStream(anthropic, params);
-
-  for await (const event of stream) {
-    if (
-      event.type === 'content_block_delta' &&
-      event.delta.type === 'text_delta' &&
-      event.delta.text !== ''
-    ) {
-      yield { type: 'token', text: event.delta.text };
+  for await (const chunk of stream) {
+    // Reading `.text` when a chunk also carries a functionCall makes the SDK log
+    // a warning, so the parts are walked directly instead.
+    for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+      if (typeof part.text === 'string' && part.text !== '') {
+        yield { type: 'token', text: part.text };
+      }
+      if (part.functionCall) calls.push(part.functionCall);
     }
   }
 
-  // `openStream` can return either the beta or the non-beta stream, whose
-  // content unions differ even though the wire shape is identical. Rather than
-  // branch on SDK types, narrow once to the two fields this function reads.
-  const message = (await stream.finalMessage()) as unknown as {
-    stop_reason: string | null;
-    content: ReadonlyArray<{ type: string; name?: string; input?: unknown }>;
-  };
+  const call = calls.find((c) => c.name === PLANNER_TOOL_NAME);
+  if (!call) return null;
 
-  if (message.stop_reason === 'refusal') {
-    process.stderr.write('[ai] planner request was refused by safety classifiers\n');
-    return null;
-  }
-
-  const toolUse = message.content.find(
-    (block) => block.type === 'tool_use' && block.name === PLANNER_TOOL_NAME,
-  );
-  if (!toolUse) return null;
-
-  const parsed = rawPlanSchema.safeParse(toolUse.input);
+  const parsed = rawPlanSchema.safeParse(call.args);
   if (!parsed.success) {
     process.stderr.write(
-      `[ai] tool input failed validation: ${parsed.error.issues.map((i) => i.message).join('; ')}\n`,
+      `[ai] tool input failed validation: ${parsed.error.issues
+        .map((i) => `${i.path.join('.')}: ${i.message}`)
+        .join('; ')}\n`,
     );
     return null;
   }
 
   return toFilterPlan(parsed.data, currentFilter, currentSort);
-}
-
-type StreamParams = Parameters<Anthropic['beta']['messages']['stream']>[0];
-
-/**
- * Opens the stream with server-side refusal fallback enabled, retrying once
- * without it if the beta is not available on this account. The feature is a
- * recommended default for Opus 5, but an account that lacks it should degrade to
- * a working query bar rather than a 400.
- */
-async function openStream(anthropic: Anthropic, params: Record<string, unknown>) {
-  try {
-    return anthropic.beta.messages.stream({
-      ...params,
-      betas: [FALLBACK_BETA],
-      fallbacks: 'default',
-    } as unknown as StreamParams);
-  } catch (error) {
-    process.stderr.write(
-      `[ai] refusal fallback unavailable (${
-        error instanceof Error ? error.message : String(error)
-      }); retrying without it\n`,
-    );
-    return anthropic.messages.stream(params as never);
-  }
 }
 
 /** Test hook. */

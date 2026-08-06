@@ -1,7 +1,7 @@
 /**
  * Deterministic fallback planner.
  *
- * Runs when `ANTHROPIC_API_KEY` is unset, which means the feature demos and its
+ * Runs when `VERTEX_PROJECT_ID` is unset, which means the feature demos and its
  * tests pass with no network and no credentials. It is also the reference for
  * what the plan output should look like: the model path and this path produce
  * the same `FilterPlan` type and go through the same validation, so the UI has

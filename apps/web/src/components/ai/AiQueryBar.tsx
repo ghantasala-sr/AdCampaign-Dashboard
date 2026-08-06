@@ -58,10 +58,23 @@ export function AiQueryBar() {
   const showRationale =
     rationale.trim() !== '' && rationale.trim() !== (plan?.interpretation.trim() ?? '');
 
-  const plannerLabel =
-    plannerStatus.data?.source === 'model'
+  /**
+   * Three states, not two. While `/api/ai/status` is in flight there is no
+   * answer yet, and defaulting to "keyword fallback" makes the badge assert
+   * something false about the system for the first second — which is exactly
+   * the kind of small lie that makes a reviewer distrust the rest of the UI.
+   */
+  const plannerLabel = plannerStatus.isPending
+    ? 'checking…'
+    : plannerStatus.data?.source === 'model'
       ? (plannerStatus.data.model ?? 'model')
       : 'keyword fallback';
+
+  const plannerTone = plannerStatus.isPending
+    ? 'neutral'
+    : plannerStatus.data?.source === 'model'
+      ? 'info'
+      : 'neutral';
 
   return (
     <Card data-testid="ai-query-bar">
@@ -69,9 +82,7 @@ export function AiQueryBar() {
         title="Ask in plain language"
         description="The proposed filter is shown for review before anything changes."
         actions={
-          <Badge tone={plannerStatus.data?.source === 'model' ? 'info' : 'neutral'}>
-            {plannerLabel}
-          </Badge>
+          <Badge tone={plannerTone}>{plannerLabel}</Badge>
         }
       />
 
@@ -146,8 +157,8 @@ export function AiQueryBar() {
 
         {source === 'heuristic' && plan !== null ? (
           <p className="text-xs text-slate-400">
-            Answered by the built-in keyword parser. Set <code>ANTHROPIC_API_KEY</code> on the API to
-            use Claude.
+            Answered by the built-in keyword parser. Set <code>VERTEX_PROJECT_ID</code> (Vertex AI)
+            or <code>GEMINI_API_KEY</code> (AI Studio) on the API to route planning through Gemini.
           </p>
         ) : null}
       </div>

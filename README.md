@@ -27,8 +27,15 @@ deterministic given `(SEED, SEED_END_DATE)`, so CI regenerates the 18 MB metrics
 file in about a second instead of the repo carrying it.
 
 The natural-language query bar works with no configuration, answered by a
-built-in keyword parser. To use Claude instead, set `ANTHROPIC_API_KEY` on the
-API; `/api/ai/status` reports which planner is live and the UI labels the panel
+built-in keyword parser. To use a model instead, set either:
+
+- `VERTEX_PROJECT_ID` — Gemini on Vertex AI, authenticated with Application
+  Default Credentials. No API key exists anywhere; on Cloud Run it is the runtime
+  service account.
+- `GEMINI_API_KEY` — an AI Studio key, which has a free tier and needs no GCP
+  project. Useful for running the planner locally.
+
+`/api/ai/status` reports which planner is live and the UI labels the panel
 accordingly.
 
 ## Measured performance
@@ -184,11 +191,36 @@ and `ttr below 2%` used to bind to the `7` in "last 7 days" because the matcher
 looked for the nearest number in either direction instead of the one following the
 comparator.
 
-Model calls use `claude-opus-5` at `effort: "low"` with thinking left on.
-Disabling thinking on Opus 5 can make it emit a tool call as plain prose, which
-would silently break the planner — the turn succeeds and no filter is ever
-produced. Server-side refusal fallback is requested and degrades gracefully if the
-beta is unavailable on the account.
+Model calls use **`gemini-2.5-flash` on Vertex AI**, reached with the runtime
+service account through Application Default Credentials — no API key is stored,
+rotated, or leakable anywhere in the deployment. Flash rather than Pro because
+this is short structured extraction where latency is what the user feels.
+
+The same code path also accepts a `GEMINI_API_KEY` from AI Studio, which has a
+free tier and no GCP dependency. One SDK, one planner, two credential sources.
+
+The tool call is deliberately **not** forced with
+`functionCallingConfig.mode: "ANY"`. Forcing it suppresses the model's text
+parts, and the streamed prose is the point — a filter that appears with no
+explanation is not reviewable. The prompt asks for prose then a call, and the
+keyword fallback covers the case where the model skips the call.
+
+Two things the schema has to work around, both found by watching real answers:
+
+- **Gemini rejects `additionalProperties`** rather than ignoring it, so the tool
+  schema is passed through a stripper. Every property is declared and required,
+  and zod validates the arguments regardless, so nothing is lost. A test asserts
+  the stripped schema contains none.
+- **A field named `spendCents` that wants dollars is a trap.** "spend over
+  $2,000" came back as `200000` — the model converted to the unit in the field
+  name. The description now says so twice with a worked example, and the review
+  chip and the stored value are asserted to agree, because a preview that
+  disagrees with the effect makes the whole review step a lie.
+
+Country codes get coerced too: asked for ISO codes, models return `"Japan"` and
+`"UK"`. `"Japan"` maps to `JP`; `"UK"` is the sharper one, because it passes a
+two-letter shape check but the ISO code is `GB` — accepting it produces a filter
+that matches nothing, which reads to a user as the AI being wrong.
 
 ## Tests
 
@@ -227,9 +259,18 @@ Two bugs found by writing these tests, both fixed:
 
 ## Deploying
 
-`apps/web` is a standard Next.js app; `apps/api` is a Node service that needs
-`npm run seed` in its build step. See [DEPLOY.md](DEPLOY.md) for both, including
-the one environment variable that has to be set at build time rather than runtime.
+Both services run on Google Cloud Run as containers:
+
+```bash
+gcloud config set project YOUR_PROJECT_ID
+./deploy/gcp-deploy.sh
+```
+
+Cloud Run rather than a serverless-function host because this app needs real
+long-lived processes — created campaigns live in memory and the query endpoint
+streams SSE. [DEPLOY.md](DEPLOY.md) covers the rest, including the build-time API
+URL that fixes the deploy order and the `npm prune` subtlety that had the API
+image at 1.12 GB before it was scoped to one workspace.
 
 ## Scope
 

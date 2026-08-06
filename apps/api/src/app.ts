@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import { corsOrigins, getEnv } from './env.js';
 import { loadDataset } from './lib/fixtures.js';
+import { plannerModel, plannerSource } from './ai/planner.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { aiRouter } from './routes/ai.js';
 import { errorHandler, notFoundHandler } from './routes/errors.js';
@@ -27,7 +28,8 @@ export function createApp(): Express {
       campaigns: dataset.manifest.campaignCount,
       dataWindow: { start: dataset.manifest.startDate, end: dataset.manifest.endDate },
       datasetLoadMs: dataset.loadMs,
-      planner: env.ANTHROPIC_API_KEY ? 'model' : 'heuristic',
+      planner: plannerSource(),
+      plannerModel: plannerModel(),
     });
   });
 

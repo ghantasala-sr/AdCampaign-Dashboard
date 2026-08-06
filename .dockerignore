@@ -1,0 +1,33 @@
+# Keeps the build context small and, more importantly, stops a host build
+# artifact from shadowing what the image builds itself.
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+.turbo
+**/.turbo
+
+# Regenerated inside the image by `npm run seed`. Copying 47 MB of host fixtures
+# in would both bloat the context and hide a broken seed step.
+apps/api/data
+
+coverage
+test-results
+playwright-report
+
+# Anchored deliberately: a bare `perf` would also match apps/web/src/app/perf,
+# the /perf route, and silently drop it from the image.
+/perf/
+
+.git
+.github
+*.log
+.DS_Store
+.env
+.env.local
+**/.env
+**/.env.local
+*.tsbuildinfo
+**/*.tsbuildinfo

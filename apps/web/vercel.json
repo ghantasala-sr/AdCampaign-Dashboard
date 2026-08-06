@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+
+  "//buildCommand": "Must go through Turbo. `next build` alone fails on a clean checkout with 'Module not found: @adsight/ui' — the shared packages resolve to dist/, which does not exist until they are compiled. The cd is because Vercel runs this from the Root Directory (apps/web), while the Turbo workspace is at the repo root.",
+  "buildCommand": "cd ../.. && npx turbo run build --filter=@adsight/web",
+
+  "//installCommand": "Run from the repo root so npm installs the whole workspace, not just apps/web.",
+  "installCommand": "cd ../.. && npm install",
+
+  "//outputDirectory": "Relative to the Root Directory, which is where Turbo writes it.",
+  "outputDirectory": ".next",
+
+  "//env": "NEXT_PUBLIC_API_URL is NOT set here on purpose. It is inlined at build time, so it must be a real value from the Vercel dashboard (Production and Preview both) — hardcoding a placeholder here would ship a client that calls the wrong host.",
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
+  ]
+}

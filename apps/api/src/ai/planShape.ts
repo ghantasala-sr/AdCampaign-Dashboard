@@ -55,6 +55,46 @@ export const rawPlanSchema = z.object({
 
 export type RawPlan = z.infer<typeof rawPlanSchema>;
 
+/**
+ * Country names the model is likely to return despite being asked for ISO codes.
+ *
+ * The schema says "two-letter uppercase ISO country codes" and Gemini mostly
+ * complies, but not always — a probe of "campaigns in Japan" came back with
+ * `["Japan"]`. Silently dropping that would produce a filter missing the one
+ * constraint the user actually asked for, so it is coerced instead. Anything
+ * still unrecognised is dropped, which is the correct outcome for a genuinely
+ * unknown market.
+ */
+const COUNTRY_NAME_TO_CODE: Readonly<Record<string, string>> = {
+  'united states': 'US', 'united states of america': 'US', usa: 'US', america: 'US',
+  'united kingdom': 'GB', britain: 'GB', england: 'GB', uk: 'GB',
+  canada: 'CA', australia: 'AU', germany: 'DE', france: 'FR', japan: 'JP',
+  'south korea': 'KR', korea: 'KR', brazil: 'BR', mexico: 'MX', india: 'IN',
+  italy: 'IT', spain: 'ES', netherlands: 'NL', holland: 'NL', sweden: 'SE',
+  singapore: 'SG', 'united arab emirates': 'AE', uae: 'AE',
+  'south africa': 'ZA', poland: 'PL', turkey: 'TR', türkiye: 'TR',
+};
+
+/**
+ * Two-letter strings that look like ISO codes but are not.
+ *
+ * `UK` is the common one — it is the everyday abbreviation for the United
+ * Kingdom and the model emits it readily, but the ISO code is `GB` and the data
+ * uses `GB`. Accepting `UK` unchanged produces a filter that matches nothing,
+ * which reads to the user as "the AI got it wrong" rather than "the code was
+ * wrong".
+ */
+const NON_ISO_ALIASES: Readonly<Record<string, string>> = { UK: 'GB', EN: 'GB' };
+
+export function coerceCountryCode(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^[A-Za-z]{2}$/.test(trimmed)) {
+    const upper = trimmed.toUpperCase();
+    return NON_ISO_ALIASES[upper] ?? upper;
+  }
+  return COUNTRY_NAME_TO_CODE[trimmed.toLowerCase()] ?? null;
+}
+
 const METRIC_LABELS: Readonly<Record<string, string>> = {
   impressions: 'Impressions',
   taps: 'Taps',
@@ -170,8 +210,8 @@ export function toFilterPlan(raw: RawPlan, currentFilter: CampaignFilter, curren
     servingStatuses: raw.servingStatuses,
     supplySources: raw.supplySources,
     countriesOrRegions: raw.countriesOrRegions
-      .map((c) => c.toUpperCase().trim())
-      .filter((c) => /^[A-Z]{2}$/.test(c)),
+      .map((c) => coerceCountryCode(c))
+      .filter((c): c is string => c !== null),
     metricPredicates: raw.metricPredicates,
     dateRange:
       raw.dateRangePreset === KEEP_CURRENT

@@ -1,0 +1,52 @@
+# Controls what `gcloud builds submit` uploads as the build context.
+#
+# `.dockerignore` does NOT apply here — gcloud reads this file, and without it
+# falls back to deriving rules from .gitignore, which is close but not guaranteed.
+# Being explicit keeps the upload to a few MB of source instead of a 600 MB
+# node_modules tree if someone has run `npm install` locally first.
+#
+# Everything excluded here is either regenerated inside the image (node_modules
+# via `npm ci`, fixtures via `npm run seed`, dist via tsc) or irrelevant to a build.
+
+.git
+.gitignore
+.github
+
+node_modules
+**/node_modules
+
+.next
+**/.next
+dist
+**/dist
+.turbo
+**/.turbo
+out
+**/out
+
+# Regenerated in the image by `npm run seed` — 47 MB that must not be uploaded.
+apps/api/data
+
+coverage
+test-results
+playwright-report
+
+# MUST stay anchored with a leading slash. These patterns use gitignore
+# semantics, so a bare `perf` matches *any* directory of that name — including
+# apps/web/src/app/perf, the /perf route. That excluded the route from the build
+# context and the deployed site returned 404 for it while working locally.
+/perf/
+
+*.log
+.DS_Store
+.env
+.env.local
+**/.env
+**/.env.local
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Docs and local-only tooling. package-lock.json is deliberately NOT excluded —
+# `npm ci` in the Dockerfile requires it.
+*.md
+**/*.md
